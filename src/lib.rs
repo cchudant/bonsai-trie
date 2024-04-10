@@ -529,13 +529,12 @@ where
     /// If the value already exists it will overwrite it.
     ///
     /// > Note: changes will not be applied until the next `commit`
-    pub fn insert(&mut self, identifier: &[u8], key: &BitSlice<u8, Msb0>, value: &Felt) {
+    pub fn insert(&mut self, identifier: &[u8], key: &BitSlice<u8, Msb0>, value: &[u8]) {
         let key = bitslice_to_bytes(key);
-        let value = value.to_bytes_be().to_vec();
 
         self.cache_storage_modified.insert(
             TrieKey::new(identifier, TrieKeyType::Flat, &key),
-            InsertOrRemove::Insert(value),
+            InsertOrRemove::Insert(value.to_vec()),
         );
     }
 
@@ -557,12 +556,12 @@ where
         &self,
         identifier: &[u8],
         key: &BitSlice<u8, Msb0>,
-    ) -> Result<Option<Felt>, BonsaiStorageError<DB::DatabaseError>> {
+    ) -> Result<Option<Vec<u8>>, BonsaiStorageError<DB::DatabaseError>> {
         let key = bitslice_to_bytes(key);
         let key = TrieKey::new(identifier, TrieKeyType::Flat, &key);
 
         match self.db.get(&key)? {
-            Some(value) => Ok(Some(Felt::from_bytes_be_slice(&value))),
+            Some(value) => Ok(Some(value)),
             None => Ok(None),
         }
     }
@@ -806,9 +805,6 @@ mod tests {
 
         log::info!("Testing k-v insertion...");
         for (key, value) in data.iter() {
-            let key_debug = Felt::from_bytes_be_slice(key.as_raw_slice());
-            log::debug!("key: {key_debug:#064x}, value: {value:#064x}");
-
             revertible.insert(b"identifier", &key, &value);
         }
 
@@ -819,9 +815,7 @@ mod tests {
             let result = revertible.get(b"identifier", &key);
             assert!(result.is_ok());
 
-            let key = Felt::from_bytes_be_slice(key.as_raw_slice());
             let result = result.unwrap().unwrap();
-            log::debug!("key: {key:#064x}, got {result:#064x}, expected {value:#064x}");
             assert_eq!(result, *value);
         }
     }
@@ -851,7 +845,7 @@ mod tests {
         };
         assert_eq!(
             state_0.get(b"identifier", &key(&"0x01")).unwrap(),
-            Some(Felt::from_hex("0x01").unwrap())
+            Some(value("0x01"))
         );
         assert_eq!(state_0.get(b"identifier", &key(&"0x02")).unwrap(), None);
         assert_eq!(state_0.get(b"identifier", &key(&"0x03")).unwrap(), None);
@@ -865,11 +859,11 @@ mod tests {
         };
         assert_eq!(
             state_1.get(b"identifier", &key(&"0x01")).unwrap(),
-            Some(Felt::from_hex("0x01").unwrap())
+            Some(value("0x01"))
         );
         assert_eq!(
             state_1.get(b"identifier", &key(&"0x02")).unwrap(),
-            Some(Felt::from_hex("0x02").unwrap())
+            Some(value("0x02"))
         );
         assert_eq!(state_1.get(b"identifier", &key(&"0x03")).unwrap(), None);
 
@@ -882,15 +876,15 @@ mod tests {
         };
         assert_eq!(
             state_2.get(b"identifier", &key(&"0x01")).unwrap(),
-            Some(Felt::from_hex("0x01").unwrap())
+            Some(value("0x01"))
         );
         assert_eq!(
             state_2.get(b"identifier", &key(&"0x02")).unwrap(),
-            Some(Felt::from_hex("0x02").unwrap())
+            Some(value("0x02"))
         );
         assert_eq!(
             state_2.get(b"identifier", &key(&"0x03")).unwrap(),
-            Some(Felt::from_hex("0x03").unwrap())
+            Some(value("0x03"))
         );
     }
 
@@ -915,7 +909,7 @@ mod tests {
         // only storage at key '0x01' should be accessible after revert
         assert_eq!(
             revertible.get(b"identifier", &key(&"0x01")).unwrap(),
-            Some(Felt::from_hex("0x01").unwrap())
+            Some(value("0x01"))
         );
         assert_eq!(revertible.get(b"identifier", &key(&"0x02")).unwrap(), None);
         assert_eq!(revertible.get(b"identifier", &key(&"0x03")).unwrap(), None);
@@ -925,7 +919,7 @@ mod tests {
         Felt::from_hex(hex).unwrap().to_bytes_be().view_bits()[5..].to_owned()
     }
 
-    fn value(hex: &str) -> Felt {
-        Felt::from_hex(hex).unwrap()
+    fn value(hex: &str) -> Vec<u8> {
+        Felt::from_hex(hex).unwrap().to_bytes_be().to_vec()
     }
 }

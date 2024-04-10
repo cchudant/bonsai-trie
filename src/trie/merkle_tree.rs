@@ -1350,7 +1350,7 @@ mod tests {
     use starknet_types_core::{felt::Felt, hash::Pedersen};
 
     use crate::{
-        databases::{create_rocks_db, HashMapDb, RocksDB, RocksDBConfig},
+        databases::{create_rocks_db, RocksDB, RocksDBConfig},
         id::BasicId,
         BonsaiStorage, BonsaiStorageConfig,
     };
