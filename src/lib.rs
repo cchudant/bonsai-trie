@@ -90,10 +90,11 @@ extern crate alloc;
 use crate::trie::merkle_tree::MerkleTree;
 #[cfg(not(feature = "std"))]
 use alloc::{format, vec::Vec};
-use bitvec::{order::Msb0, slice::BitSlice, vec::BitVec};
+use bitvec::{order::Msb0, slice::BitSlice, vec::BitVec, view::BitView};
 use changes::ChangeBatch;
 use hashbrown::HashMap;
 use key_value_db::KeyValueDB;
+use parity_scale_codec::Output;
 use starknet_types_core::{
     felt::Felt,
     hash::{Pedersen, StarkHash},
@@ -112,8 +113,11 @@ pub mod id;
 
 pub use bonsai_database::{BonsaiDatabase, BonsaiPersistentDatabase, DBError, DatabaseKey};
 pub use error::BonsaiStorageError;
-use trie::merkle_tree::MerkleTrees;
 pub use trie::merkle_tree::{Membership, ProofNode};
+use trie::{
+    merkle_tree::{bitslice_to_bytes, InsertOrRemove, MerkleTrees},
+    TrieKey, TrieKeyType,
+};
 
 #[cfg(test)]
 mod tests;
@@ -478,5 +482,103 @@ where
         self.tries
             .db_mut()
             .merge(transactional_bonsai_storage.tries.db())
+    }
+}
+
+pub struct RevertibleStorage<ChangeID, DB>
+where
+    DB: BonsaiDatabase,
+    ChangeID: id::Id,
+{
+    db: KeyValueDB<DB, ChangeID>,
+    cache_storage_modified: HashMap<TrieKey, InsertOrRemove<Vec<u8>>>,
+}
+
+impl<ChangeID, DB> RevertibleStorage<ChangeID, DB>
+where
+    DB: BonsaiDatabase,
+    ChangeID: id::Id,
+{
+    pub fn new(
+        db: DB,
+        config: BonsaiStorageConfig,
+    ) -> Result<Self, BonsaiStorageError<DB::DatabaseError>> {
+        let kvdb = KeyValueDB::new(db, config.into(), None);
+        Ok(Self {
+            db: kvdb,
+            cache_storage_modified: HashMap::new(),
+        })
+    }
+
+    pub fn insert(&mut self, identifier: &[u8], key: &BitSlice<u8, Msb0>, value: &Felt) {
+        let key = bitslice_to_bytes(key);
+        let value = value.to_bytes_be().to_vec();
+
+        self.cache_storage_modified.insert(
+            TrieKey::new(identifier, TrieKeyType::Flat, &key),
+            InsertOrRemove::Insert(value),
+        );
+    }
+
+    pub fn remove(&mut self, identifier: &[u8], key: &BitSlice<u8, Msb0>) {
+        let key = bitslice_to_bytes(key);
+
+        self.cache_storage_modified.insert(
+            TrieKey::new(identifier, TrieKeyType::Flat, &key),
+            InsertOrRemove::Remove,
+        );
+    }
+
+    pub fn get(
+        &self,
+        identifier: &[u8],
+        key: &BitSlice<u8, Msb0>,
+    ) -> Result<Option<Felt>, BonsaiStorageError<DB::DatabaseError>> {
+        let key = bitslice_to_bytes(key);
+        let key = TrieKey::new(identifier, TrieKeyType::Flat, &key);
+
+        match self.db.get(&key)? {
+            Some(value) => Ok(Some(Felt::from_bytes_be_slice(&value))),
+            None => Ok(None),
+        }
+    }
+
+    pub fn contains(
+        &self,
+        identifier: &[u8],
+        key: &BitSlice<u8, Msb0>,
+    ) -> Result<bool, BonsaiStorageError<DB::DatabaseError>> {
+        let key = bitslice_to_bytes(key);
+        self.db
+            .contains(&TrieKey::new(identifier, TrieKeyType::Flat, &key))
+    }
+}
+
+impl<ChangeID, DB> RevertibleStorage<ChangeID, DB>
+where
+    DB: BonsaiDatabase + BonsaiPersistentDatabase<ChangeID>,
+    ChangeID: id::Id,
+{
+    pub fn commit(
+        &mut self,
+        id: ChangeID,
+    ) -> Result<(), BonsaiStorageError<<DB as BonsaiDatabase>::DatabaseError>> {
+        let mut batch = self.db.create_batch();
+        for (key, value) in self.cache_storage_modified.iter() {
+            match value {
+                InsertOrRemove::Insert(value) => self.db.insert(key, value, Some(&mut batch))?,
+                InsertOrRemove::Remove => self.db.remove(key, Some(&mut batch))?,
+            }
+        }
+        self.cache_storage_modified = HashMap::new();
+
+        self.db.write_batch(batch)?;
+        self.db.commit(id)?;
+        self.db.create_snapshot(id);
+        Ok(())
+    }
+
+    pub fn get_config(&self) -> BonsaiStorageConfig {
+        self.db.get_config().into()
     }
 }
