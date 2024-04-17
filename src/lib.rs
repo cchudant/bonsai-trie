@@ -491,6 +491,11 @@ where
         self.tries.db_ref().get_config().into()
     }
 
+    /// Get a copy of all trie identifiers used by the db.
+    pub fn get_identifiers(&self) -> Vec<Vec<u8>> {
+        self.tries.get_identifiers()
+    }
+
     /// Merge a transactional state into the main trie.
     pub fn merge(
         &mut self,
