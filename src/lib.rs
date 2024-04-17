@@ -215,6 +215,11 @@ where
 
     /// Insert a new key/value in the trie, overwriting the previous value if it exists.
     /// If the value already exists it will overwrite it.
+    ///
+    /// Be careful to provide a key that does not collide with those already present in storage,
+    /// as [RevertibleStorage] does not handle collisions automatically yet.
+    ///
+    /// > Note: changes will not be applied until the next `commit`
     pub fn insert(
         &mut self,
         identifier: &[u8],
@@ -528,12 +533,15 @@ where
     /// Insert a new key/value in the storage, overwriting the previous value if it exists.
     /// If the value already exists it will overwrite it.
     ///
+    /// Be careful to provide a key that does not collide with those already present in storage,
+    /// as [RevertibleStorage] does not handle collisions automatically yet.
+    ///
     /// > Note: changes will not be applied until the next `commit`
-    pub fn insert(&mut self, identifier: &[u8], key: &BitSlice<u8, Msb0>, value: &[u8]) {
+    pub fn insert(&mut self, key: &BitSlice<u8, Msb0>, value: &[u8]) {
         let key = bitslice_to_bytes(key);
 
         self.cache_storage_modified.insert(
-            TrieKey::new(identifier, TrieKeyType::Flat, &key),
+            TrieKey::new(&[], TrieKeyType::Flat, &key),
             InsertOrRemove::Insert(value.to_vec()),
         );
     }
@@ -542,11 +550,11 @@ where
     /// If the value doesn't exist it will do nothing
     ///
     /// > Note: changes will not be applied until the next `commit`
-    pub fn remove(&mut self, identifier: &[u8], key: &BitSlice<u8, Msb0>) {
+    pub fn remove(&mut self, key: &BitSlice<u8, Msb0>) {
         let key = bitslice_to_bytes(key);
 
         self.cache_storage_modified.insert(
-            TrieKey::new(identifier, TrieKeyType::Flat, &key),
+            TrieKey::new(&[], TrieKeyType::Flat, &key),
             InsertOrRemove::Remove,
         );
     }
@@ -554,11 +562,10 @@ where
     /// Get a value in the storage.
     pub fn get(
         &self,
-        identifier: &[u8],
         key: &BitSlice<u8, Msb0>,
     ) -> Result<Option<Vec<u8>>, BonsaiStorageError<DB::DatabaseError>> {
         let key = bitslice_to_bytes(key);
-        let key = TrieKey::new(identifier, TrieKeyType::Flat, &key);
+        let key = TrieKey::new(&[], TrieKeyType::Flat, &key);
 
         match self.db.get(&key)? {
             Some(value) => Ok(Some(value)),
@@ -569,12 +576,11 @@ where
     /// Checks if the key exists in the storage.
     pub fn contains(
         &self,
-        identifier: &[u8],
         key: &BitSlice<u8, Msb0>,
     ) -> Result<bool, BonsaiStorageError<DB::DatabaseError>> {
         let key = bitslice_to_bytes(key);
         self.db
-            .contains(&TrieKey::new(identifier, TrieKeyType::Flat, &key))
+            .contains(&TrieKey::new(&[], TrieKeyType::Flat, &key))
     }
 
     /// Go to a specific commit ID.
@@ -805,14 +811,14 @@ mod tests {
 
         log::info!("Testing k-v insertion...");
         for (key, value) in data.iter() {
-            revertible.insert(b"identifier", &key, &value);
+            revertible.insert(&key, &value);
         }
 
         assert!(revertible.commit(BasicId::new(0)).is_ok());
 
         log::info!("Testing k-v retrieval...");
         for (key, value) in data.iter() {
-            let result = revertible.get(b"identifier", &key);
+            let result = revertible.get(&key);
             assert!(result.is_ok());
 
             let result = result.unwrap().unwrap();
@@ -827,13 +833,13 @@ mod tests {
         let db = RocksDB::new(&rocksdb, RocksDBConfig::default());
         let mut revertible = RevertibleStorage::new(db, BonsaiStorageConfig::default()).unwrap();
 
-        revertible.insert(b"identifier", &key(&"0x01"), &value(&"0x01"));
+        revertible.insert(&key(&"0x01"), &value(&"0x01"));
         assert!(revertible.commit(BasicId::new(0)).is_ok());
 
-        revertible.insert(b"identifier", &key(&"0x02"), &value(&"0x02"));
+        revertible.insert(&key(&"0x02"), &value(&"0x02"));
         assert!(revertible.commit(BasicId::new(1)).is_ok());
 
-        revertible.insert(b"identifier", &key(&"0x03"), &value(&"0x03"));
+        revertible.insert(&key(&"0x03"), &value(&"0x03"));
         assert!(revertible.commit(BasicId::new(2)).is_ok());
 
         // transactional state for commit id 0 should ONLY contain 0x01 key
@@ -843,12 +849,9 @@ mod tests {
             Ok(Some(state)) => state,
             _ => panic!("Failed to get transactional state for commit id 0"),
         };
-        assert_eq!(
-            state_0.get(b"identifier", &key(&"0x01")).unwrap(),
-            Some(value("0x01"))
-        );
-        assert_eq!(state_0.get(b"identifier", &key(&"0x02")).unwrap(), None);
-        assert_eq!(state_0.get(b"identifier", &key(&"0x03")).unwrap(), None);
+        assert_eq!(state_0.get(&key(&"0x01")).unwrap(), Some(value("0x01")));
+        assert_eq!(state_0.get(&key(&"0x02")).unwrap(), None);
+        assert_eq!(state_0.get(&key(&"0x03")).unwrap(), None);
 
         // transactional state for commit id 1 should contain 0x01 and 0x02 keys
         let state_1 = match revertible
@@ -857,15 +860,9 @@ mod tests {
             Ok(Some(state)) => state,
             _ => panic!("Failed to get transactional state for commit id 0"),
         };
-        assert_eq!(
-            state_1.get(b"identifier", &key(&"0x01")).unwrap(),
-            Some(value("0x01"))
-        );
-        assert_eq!(
-            state_1.get(b"identifier", &key(&"0x02")).unwrap(),
-            Some(value("0x02"))
-        );
-        assert_eq!(state_1.get(b"identifier", &key(&"0x03")).unwrap(), None);
+        assert_eq!(state_1.get(&key(&"0x01")).unwrap(), Some(value("0x01")));
+        assert_eq!(state_1.get(&key(&"0x02")).unwrap(), Some(value("0x02")));
+        assert_eq!(state_1.get(&key(&"0x03")).unwrap(), None);
 
         // transactional state for commit id 2 should contain 0x01, 0x02 and 0x03 keys
         let state_2 = match revertible
@@ -874,18 +871,9 @@ mod tests {
             Ok(Some(state)) => state,
             _ => panic!("Failed to get transactional state for commit id 0"),
         };
-        assert_eq!(
-            state_2.get(b"identifier", &key(&"0x01")).unwrap(),
-            Some(value("0x01"))
-        );
-        assert_eq!(
-            state_2.get(b"identifier", &key(&"0x02")).unwrap(),
-            Some(value("0x02"))
-        );
-        assert_eq!(
-            state_2.get(b"identifier", &key(&"0x03")).unwrap(),
-            Some(value("0x03"))
-        );
+        assert_eq!(state_2.get(&key(&"0x01")).unwrap(), Some(value("0x01")));
+        assert_eq!(state_2.get(&key(&"0x02")).unwrap(), Some(value("0x02")));
+        assert_eq!(state_2.get(&key(&"0x03")).unwrap(), Some(value("0x03")));
     }
 
     #[test]
@@ -895,24 +883,21 @@ mod tests {
         let db = RocksDB::new(&rocksdb, RocksDBConfig::default());
         let mut revertible = RevertibleStorage::new(db, BonsaiStorageConfig::default()).unwrap();
 
-        revertible.insert(b"identifier", &key(&"0x01"), &value(&"0x01"));
+        revertible.insert(&key(&"0x01"), &value(&"0x01"));
         assert!(revertible.commit(BasicId::new(0)).is_ok());
 
-        revertible.insert(b"identifier", &key(&"0x02"), &value(&"0x02"));
+        revertible.insert(&key(&"0x02"), &value(&"0x02"));
         assert!(revertible.commit(BasicId::new(1)).is_ok());
 
-        revertible.insert(b"identifier", &key(&"0x03"), &value(&"0x03"));
+        revertible.insert(&key(&"0x03"), &value(&"0x03"));
         assert!(revertible.commit(BasicId::new(2)).is_ok());
 
         assert!(revertible.revert_to(BasicId::new(0)).is_ok());
 
         // only storage at key '0x01' should be accessible after revert
-        assert_eq!(
-            revertible.get(b"identifier", &key(&"0x01")).unwrap(),
-            Some(value("0x01"))
-        );
-        assert_eq!(revertible.get(b"identifier", &key(&"0x02")).unwrap(), None);
-        assert_eq!(revertible.get(b"identifier", &key(&"0x03")).unwrap(), None);
+        assert_eq!(revertible.get(&key(&"0x01")).unwrap(), Some(value("0x01")));
+        assert_eq!(revertible.get(&key(&"0x02")).unwrap(), None);
+        assert_eq!(revertible.get(&key(&"0x03")).unwrap(), None);
     }
 
     fn key(hex: &str) -> BitVec<u8, Msb0> {

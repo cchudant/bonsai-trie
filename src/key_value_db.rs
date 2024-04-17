@@ -246,6 +246,9 @@ where
 
     /// Retrieves a transactional state using the closest snapshot.
     ///
+    /// > Note that if a snapshot does not exist for the exact commit id
+    /// > then changes will be iteratively reverted from the closest snapshot.
+    ///
     /// * `id`: transaction state will represent the state of the db at this change id
     pub(crate) fn get_transaction(
         &self,
