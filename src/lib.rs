@@ -605,6 +605,20 @@ where
         }
     }
 
+    pub fn get_at(
+        &self,
+        key: &BitSlice<u8, Msb0>,
+        id: ChangeID,
+    ) -> Result<Option<Vec<u8>>, BonsaiStorageError<DB::DatabaseError>> {
+        let key = bitslice_to_bytes(key);
+        let key = TrieKey::new(&[], TrieKeyType::Flat, &key);
+
+        match self.db.get_at(&key, id)? {
+            Some(value) => Ok(Some(value)),
+            None => Ok(None),
+        }
+    }
+
     /// Checks if the key exists in the storage.
     pub fn contains(
         &self,
@@ -853,6 +867,42 @@ mod tests {
         assert!(value.is_err());
 
         let value = bonsai.get_at(b"identifier", &key(&"0x04"), BasicId::new(0));
+        assert_eq!(value.unwrap(), None);
+    }
+
+    #[test]
+    fn test_revertible_storage_get_at() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let rocksdb = create_rocks_db(tempdir.path()).unwrap();
+        let db = RocksDB::new(&rocksdb, RocksDBConfig::default());
+        let mut bonsai = RevertibleStorage::new(db, BonsaiStorageConfig::default()).unwrap();
+
+        bonsai.insert(&key(&"0x01"), &value(&"0x01"));
+        bonsai.insert(&key(&"0x02"), &value(&"0x02"));
+        assert!(bonsai.commit(BasicId::new(0)).is_ok());
+
+        bonsai.insert(&key(&"0x03"), &value(&"0x03"));
+        assert!(bonsai.commit(BasicId::new(1)).is_ok());
+
+        bonsai.insert(&key(&"0x01"), &value(&"0x02"));
+        assert!(bonsai.commit(BasicId::new(2)).is_ok());
+
+        let v = bonsai.get_at(&key(&"0x01"), BasicId::new(2));
+        assert!(v.is_ok());
+        assert_eq!(v.unwrap(), Some(value(&"0x02")));
+
+        let v = bonsai.get_at(&key(&"0x01"), BasicId::new(1));
+        assert!(v.is_ok());
+        assert_eq!(v.unwrap(), Some(value(&"0x01")));
+
+        let v = bonsai.get_at(&key(&"0x01"), BasicId::new(0));
+        assert!(v.is_ok());
+        assert_eq!(v.unwrap(), Some(value(&"0x01")));
+
+        let value = bonsai.get_at(&key(&"0x01"), BasicId::new(3));
+        assert!(value.is_err());
+
+        let value = bonsai.get_at(&key(&"0x04"), BasicId::new(0));
         assert_eq!(value.unwrap(), None);
     }
 
