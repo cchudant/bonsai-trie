@@ -2,9 +2,7 @@ use std::hint::black_box;
 
 use bitvec::vec::BitVec;
 use bonsai_trie::{
-    databases::HashMapDb,
-    id::{BasicId, BasicIdBuilder},
-    BonsaiStorage, BonsaiStorageConfig,
+    databases::HashMapDb, id::{BasicId, BasicIdBuilder}, BatchedUpdateItem, BonsaiStorage, BonsaiStorageConfig
 };
 use criterion::{criterion_group, criterion_main, Criterion};
 use rand::{prelude::*, thread_rng};
@@ -14,6 +12,78 @@ use starknet_types_core::{
 };
 
 mod flamegraph;
+
+fn storage_with_insert(c: &mut Criterion) {
+    c.bench_function("storage commit with insert", move |b| {
+        let mut rng = thread_rng();
+        b.iter_with_large_drop(
+            || {
+                let mut bonsai_storage: BonsaiStorage<BasicId, _, Pedersen> = BonsaiStorage::new(
+                    HashMapDb::<BasicId>::default(),
+                    BonsaiStorageConfig::default(),
+                )
+                .unwrap();
+
+                let felt = Felt::from_hex("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap();
+                for _ in 0..4000 {
+                    let bitvec = BitVec::from_vec(vec![
+                        rng.gen(),
+                        rng.gen(),
+                        rng.gen(),
+                        rng.gen(),
+                        rng.gen(),
+                        rng.gen(),
+                    ]);
+                    bonsai_storage.insert(&[], &bitvec, &felt).unwrap();
+                }
+
+                let mut id_builder = BasicIdBuilder::new();
+                bonsai_storage.commit(id_builder.new_id()).unwrap();
+
+                bonsai_storage
+            },
+        );
+    });
+}
+
+fn batched_update(c: &mut Criterion) {
+    c.bench_function("storage commit with batched insert", move |b| {
+        b.iter_with_large_drop(
+            || {
+                let mut bonsai_storage: BonsaiStorage<BasicId, _, Pedersen> = BonsaiStorage::new(
+                    HashMapDb::<BasicId>::default(),
+                    BonsaiStorageConfig::default(),
+                )
+                .unwrap();
+
+                let felt = Felt::from_hex("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap();
+                let mut id_builder = BasicIdBuilder::new();
+
+                // TODO(merge): we need to commit an empty commit first because otherwise we don't have a reference id
+                //              ask aurelien why the api is that way
+                let id1 = id_builder.new_id();
+                bonsai_storage.commit(id1).unwrap();
+
+                bonsai_storage.batched_update(id1, (0..4000).map(|_| {
+                    let mut rng = thread_rng();
+                    let bitvec = BitVec::from_vec(vec![
+                        rng.gen(),
+                        rng.gen(),
+                        rng.gen(),
+                        rng.gen(),
+                        rng.gen(),
+                        rng.gen(),
+                    ]);
+                    BatchedUpdateItem::SetValue { identifier: vec![], key: bitvec, value: felt }
+                })).unwrap();
+                let id2 = id_builder.new_id();
+                bonsai_storage.commit(id2).unwrap();
+
+                bonsai_storage
+            },
+        );
+    });
+}
 
 fn storage(c: &mut Criterion) {
     c.bench_function("storage commit", move |b| {
@@ -152,6 +222,6 @@ fn hash(c: &mut Criterion) {
 criterion_group! {
     name = benches;
     config = Criterion::default(); // .with_profiler(flamegraph::FlamegraphProfiler::new(100));
-    targets = storage, one_update, five_updates, hash
+    targets = storage, one_update, five_updates, hash, storage_with_insert, batched_update
 }
 criterion_main!(benches);

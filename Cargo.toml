@@ -10,6 +10,10 @@ std = ["parity-scale-codec/std", "bitvec/std", "starknet-types-core/std"]
 # internal
 bench = []
 
+# TODO(merge): remove
+[profile.release]
+debug = true
+
 [dependencies]
 bitvec = { version = "1", default-features = false, features = ["alloc"] }
 derive_more = { version = "0.99.17", default-features = false, features = [

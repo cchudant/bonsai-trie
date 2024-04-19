@@ -87,6 +87,9 @@
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
+// TODO(merge): nostd
+use std::sync::Mutex;
+
 use crate::trie::merkle_tree::MerkleTree;
 #[cfg(not(feature = "std"))]
 use alloc::{format, vec::Vec};
@@ -182,6 +185,18 @@ where
     }
 }
 
+// TODO(merge): i want to take these by ref not values :(
+pub enum BatchedUpdateItem {
+    InitTree {
+        identifier: Vec<u8>,
+    },
+    SetValue {
+        identifier: Vec<u8>,
+        key: BitVec<u8, Msb0>,
+        value: Felt,
+    },
+}
+
 /// Trie root hash type.
 pub type BonsaiTrieHash = Felt;
 
@@ -200,6 +215,51 @@ where
         Ok(Self {
             tries: MerkleTrees::new(key_value_db),
         })
+    }
+
+    // TODO(merge): doc about panics and stuff
+    pub fn batched_update(
+        &mut self,
+        created_at: ChangeID,
+        updates: impl Iterator<Item = BatchedUpdateItem> + Send,
+    ) -> Result<(), BonsaiStorageError<<DB as BonsaiPersistentDatabase<ChangeID>>::DatabaseError>>
+    where
+        DB: BonsaiPersistentDatabase<ChangeID> + Sync,
+        DB::Transaction: Send,
+        ChangeID: Send + Sync, // TODO(merge): figure out what to do with changeid
+    {
+        let updates = Mutex::new(updates);
+
+        let res = rayon::broadcast(|_| {
+            let tx_state = self.get_transactional_state(created_at, self.get_config())?;
+            let mut tx_state = tx_state.unwrap(); // todo ??
+
+            while let Some(el) = updates.lock().expect("poisoned lock").next() {
+                match el {
+                    BatchedUpdateItem::InitTree { identifier } => {
+                        tx_state.init_tree(&identifier)?;
+                    }
+                    BatchedUpdateItem::SetValue {
+                        identifier,
+                        key,
+                        value,
+                    } => {
+                        tx_state.insert(&identifier, &key, &value)?;
+                    }
+                }
+            }
+
+            Ok::<_, BonsaiStorageError<<DB as BonsaiPersistentDatabase<ChangeID>>::DatabaseError>>(
+                tx_state
+            )
+        });
+
+        for tx_state in res {
+            let tx_state = tx_state?;
+            self.merge(tx_state)?;
+        }
+
+        Ok(())
     }
 
     pub fn new_from_transactional_state(
