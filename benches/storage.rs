@@ -10,6 +10,7 @@ use starknet_types_core::{
     felt::Felt,
     hash::{Pedersen, StarkHash},
 };
+use rayon::prelude::*;
 
 mod flamegraph;
 
@@ -64,7 +65,7 @@ fn batched_update(c: &mut Criterion) {
                 let id1 = id_builder.new_id();
                 bonsai_storage.commit(id1).unwrap();
 
-                bonsai_storage.batched_update(id1, (0..4000).map(|_| {
+                bonsai_storage.batched_update(id1, (0..40000).into_par_iter().map(|_| {
                     let mut rng = thread_rng();
                     let bitvec = BitVec::from_vec(vec![
                         rng.gen(),

@@ -87,9 +87,6 @@
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
-// TODO(merge): nostd
-use std::sync::Mutex;
-
 use crate::trie::merkle_tree::MerkleTree;
 #[cfg(not(feature = "std"))]
 use alloc::{format, vec::Vec};
@@ -97,6 +94,8 @@ use bitvec::{order::Msb0, slice::BitSlice, vec::BitVec};
 use changes::ChangeBatch;
 use hashbrown::HashMap;
 use key_value_db::KeyValueDB;
+#[cfg(feature = "std")]
+use rayon::prelude::*;
 use starknet_types_core::{
     felt::Felt,
     hash::{Pedersen, StarkHash},
@@ -218,41 +217,49 @@ where
     }
 
     // TODO(merge): doc about panics and stuff
+    #[cfg(feature = "std")]
     pub fn batched_update(
         &mut self,
         created_at: ChangeID,
-        updates: impl Iterator<Item = BatchedUpdateItem> + Send,
+        updates: impl IntoParallelIterator<Item = BatchedUpdateItem>,
     ) -> Result<(), BonsaiStorageError<<DB as BonsaiPersistentDatabase<ChangeID>>::DatabaseError>>
     where
         DB: BonsaiPersistentDatabase<ChangeID> + Sync,
         DB::Transaction: Send,
-        ChangeID: Send + Sync, // TODO(merge): figure out what to do with changeid
+        ChangeID: Send + Sync,
     {
-        let updates = Mutex::new(updates);
-
-        let res = rayon::broadcast(|_| {
-            let tx_state = self.get_transactional_state(created_at, self.get_config())?;
-            let mut tx_state = tx_state.unwrap(); // todo ??
-
-            while let Some(el) = updates.lock().expect("poisoned lock").next() {
-                match el {
-                    BatchedUpdateItem::InitTree { identifier } => {
-                        tx_state.init_tree(&identifier)?;
+        let res = updates
+            .into_par_iter()
+            .fold(
+                || {
+                    self.get_transactional_state(created_at, self.get_config())
+                        .map(|tx_state| {
+                            tx_state.expect("no snapshot with this id found") // TODO(merge): figure out what to do with changeid
+                        })
+                },
+                |tx_state, item| {
+                    let mut tx_state = tx_state?;
+                    match item {
+                        BatchedUpdateItem::InitTree { identifier } => {
+                            tx_state.init_tree(&identifier)?;
+                        }
+                        BatchedUpdateItem::SetValue {
+                            identifier,
+                            key,
+                            value,
+                        } => {
+                            tx_state.insert(&identifier, &key, &value)?;
+                        }
                     }
-                    BatchedUpdateItem::SetValue {
-                        identifier,
-                        key,
-                        value,
-                    } => {
-                        tx_state.insert(&identifier, &key, &value)?;
-                    }
-                }
-            }
-
-            Ok::<_, BonsaiStorageError<<DB as BonsaiPersistentDatabase<ChangeID>>::DatabaseError>>(
-                tx_state
+                    Ok::<
+                        _,
+                        BonsaiStorageError<
+                            <DB as BonsaiPersistentDatabase<ChangeID>>::DatabaseError,
+                        >,
+                    >(tx_state)
+                },
             )
-        });
+            .collect::<Vec<_>>();
 
         for tx_state in res {
             let tx_state = tx_state?;
