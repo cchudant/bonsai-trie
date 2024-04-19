@@ -2,31 +2,35 @@ use std::hint::black_box;
 
 use bitvec::vec::BitVec;
 use bonsai_trie::{
-    databases::HashMapDb, id::{BasicId, BasicIdBuilder}, BatchedUpdateItem, BonsaiStorage, BonsaiStorageConfig
+    databases::HashMapDb,
+    id::{BasicId, BasicIdBuilder},
+    BatchedUpdateItem, BonsaiStorage, BonsaiStorageConfig,
 };
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 use rand::{prelude::*, thread_rng};
+use rayon::prelude::*;
 use starknet_types_core::{
     felt::Felt,
     hash::{Pedersen, StarkHash},
 };
-use rayon::prelude::*;
 
 mod flamegraph;
 
 fn storage_with_insert(c: &mut Criterion) {
     c.bench_function("storage commit with insert", move |b| {
         let mut rng = thread_rng();
-        b.iter_with_large_drop(
+        b.iter_batched_ref(
             || {
-                let mut bonsai_storage: BonsaiStorage<BasicId, _, Pedersen> = BonsaiStorage::new(
+                let bonsai_storage: BonsaiStorage<BasicId, _, Pedersen> = BonsaiStorage::new(
                     HashMapDb::<BasicId>::default(),
                     BonsaiStorageConfig::default(),
                 )
                 .unwrap();
-
+                bonsai_storage
+            },
+            |bonsai_storage| {
                 let felt = Felt::from_hex("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap();
-                for _ in 0..4000 {
+                for _ in 0..40000 {
                     let bitvec = BitVec::from_vec(vec![
                         rng.gen(),
                         rng.gen(),
@@ -38,18 +42,17 @@ fn storage_with_insert(c: &mut Criterion) {
                     bonsai_storage.insert(&[], &bitvec, &felt).unwrap();
                 }
 
-                let mut id_builder = BasicIdBuilder::new();
-                bonsai_storage.commit(id_builder.new_id()).unwrap();
-
-                bonsai_storage
+                // let mut id_builder = BasicIdBuilder::new();
+                // bonsai_storage.commit(id_builder.new_id()).unwrap();
             },
+            BatchSize::LargeInput,
         );
     });
 }
 
 fn batched_update(c: &mut Criterion) {
     c.bench_function("storage commit with batched insert", move |b| {
-        b.iter_with_large_drop(
+        b.iter_batched_ref(
             || {
                 let mut bonsai_storage: BonsaiStorage<BasicId, _, Pedersen> = BonsaiStorage::new(
                     HashMapDb::<BasicId>::default(),
@@ -57,31 +60,39 @@ fn batched_update(c: &mut Criterion) {
                 )
                 .unwrap();
 
-                let felt = Felt::from_hex("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap();
                 let mut id_builder = BasicIdBuilder::new();
 
                 // TODO(merge): we need to commit an empty commit first because otherwise we don't have a reference id
                 //              ask aurelien why the api is that way
                 let id1 = id_builder.new_id();
                 bonsai_storage.commit(id1).unwrap();
-
-                bonsai_storage.batched_update(id1, (0..40000).into_par_iter().map(|_| {
-                    let mut rng = thread_rng();
-                    let bitvec = BitVec::from_vec(vec![
-                        rng.gen(),
-                        rng.gen(),
-                        rng.gen(),
-                        rng.gen(),
-                        rng.gen(),
-                        rng.gen(),
-                    ]);
-                    BatchedUpdateItem::SetValue { identifier: vec![], key: bitvec, value: felt }
-                })).unwrap();
-                let id2 = id_builder.new_id();
-                bonsai_storage.commit(id2).unwrap();
-
-                bonsai_storage
+                (bonsai_storage, id1)
             },
+            |(bonsai_storage, id1)| {
+                let felt = Felt::from_hex("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap();
+                bonsai_storage
+                    .batched_update(
+                        *id1,
+                        (0..40000).into_par_iter().map(|_| {
+                            let mut rng = thread_rng();
+                            let bitvec = BitVec::from_vec(vec![
+                                rng.gen(),
+                                rng.gen(),
+                                rng.gen(),
+                                rng.gen(),
+                                rng.gen(),
+                                rng.gen(),
+                            ]);
+                            BatchedUpdateItem::SetValue {
+                                identifier: vec![],
+                                key: bitvec,
+                                value: felt,
+                            }
+                        }),
+                    )
+                    .unwrap();
+            },
+            BatchSize::LargeInput,
         );
     });
 }
@@ -109,9 +120,9 @@ fn storage(c: &mut Criterion) {
         }
 
         let mut id_builder = BasicIdBuilder::new();
-        b.iter_batched(
+        b.iter_batched_ref(
             || bonsai_storage.clone(),
-            |mut bonsai_storage| {
+            |bonsai_storage| {
                 bonsai_storage.commit(id_builder.new_id()).unwrap();
             },
             criterion::BatchSize::LargeInput,
@@ -144,9 +155,9 @@ fn one_update(c: &mut Criterion) {
         let mut id_builder = BasicIdBuilder::new();
         bonsai_storage.commit(id_builder.new_id()).unwrap();
 
-        b.iter_batched(
+        b.iter_batched_ref(
             || bonsai_storage.clone(),
-            |mut bonsai_storage| {
+            |bonsai_storage| {
                 let bitvec = BitVec::from_vec(vec![0, 1, 2, 3, 4, 5]);
                 bonsai_storage.insert(&[], &bitvec, &felt).unwrap();
                 bonsai_storage.commit(id_builder.new_id()).unwrap();
@@ -181,9 +192,9 @@ fn five_updates(c: &mut Criterion) {
         let mut id_builder = BasicIdBuilder::new();
         bonsai_storage.commit(id_builder.new_id()).unwrap();
 
-        b.iter_batched(
+        b.iter_batched_ref(
             || bonsai_storage.clone(),
-            |mut bonsai_storage| {
+            |bonsai_storage| {
                 bonsai_storage
                     .insert(&[], &BitVec::from_vec(vec![0, 1, 2, 3, 4, 5]), &felt)
                     .unwrap();
