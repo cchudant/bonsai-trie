@@ -234,7 +234,7 @@ where
                 || {
                     self.get_transactional_state(created_at, self.get_config())
                         .map(|tx_state| {
-                            tx_state.expect("no snapshot with this id found") // TODO(merge): figure out what to do with changeid
+                            Box::new(tx_state.expect("no snapshot with this id found")) // TODO(merge): figure out what to do with changeid
                         })
                 },
                 |tx_state, item| {
@@ -263,7 +263,7 @@ where
 
         for tx_state in res {
             let tx_state = tx_state?;
-            self.merge(tx_state)?;
+            self.merge(*tx_state)?;
         }
 
         Ok(())
