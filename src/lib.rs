@@ -264,6 +264,19 @@ where
         self.tries.get(identifier, key)
     }
 
+    /// Gets a value in a trie at a given commit ID.
+    ///
+    /// Note that this is much faster that calling `revert_to`
+    /// as it only reverts storage for a single key.
+    pub fn get_at(
+        &self,
+        identifier: &[u8],
+        key: &BitSlice<u8, Msb0>,
+        id: ChangeID,
+    ) -> Result<Option<Felt>, BonsaiStorageError<DB::DatabaseError>> {
+        self.tries.get_at(identifier, key, id)
+    }
+
     /// Checks if the key exists in the trie.
     pub fn contains(
         &self,
@@ -790,12 +803,58 @@ where
 #[cfg(all(test, feature = "std"))]
 mod tests {
     use bitvec::{order::Msb0, vec::BitVec, view::BitView};
+    use starknet_types_core::hash::Pedersen;
 
     use crate::{
         databases::{create_rocks_db, RocksDB, RocksDBConfig},
         id::BasicId,
-        BonsaiStorageConfig, Felt, RevertibleStorage,
+        BonsaiStorage, BonsaiStorageConfig, Felt, RevertibleStorage,
     };
+
+    #[test]
+    fn test_bonsai_storage_get_at() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let rocksdb = create_rocks_db(tempdir.path()).unwrap();
+        let db = RocksDB::new(&rocksdb, RocksDBConfig::default());
+        let mut bonsai: BonsaiStorage<_, _, Pedersen> =
+            BonsaiStorage::new(db, BonsaiStorageConfig::default()).unwrap();
+
+        assert!(bonsai
+            .insert(b"identifier", &key(&"0x01"), &Felt::ONE)
+            .is_ok());
+        assert!(bonsai
+            .insert(b"identifier", &key(&"0x02"), &Felt::TWO)
+            .is_ok());
+        assert!(bonsai.commit(BasicId::new(0)).is_ok());
+
+        assert!(bonsai
+            .insert(b"identifier", &key(&"0x03"), &Felt::THREE)
+            .is_ok());
+        assert!(bonsai.commit(BasicId::new(1)).is_ok());
+
+        assert!(bonsai
+            .insert(b"identifier", &key(&"0x01"), &Felt::TWO)
+            .is_ok());
+        assert!(bonsai.commit(BasicId::new(2)).is_ok());
+
+        let value = bonsai.get_at(b"identifier", &key(&"0x01"), BasicId::new(2));
+        assert!(value.is_ok());
+        assert_eq!(value.unwrap(), Some(Felt::TWO));
+
+        let value = bonsai.get_at(b"identifier", &key(&"0x01"), BasicId::new(1));
+        assert!(value.is_ok());
+        assert_eq!(value.unwrap(), Some(Felt::ONE));
+
+        let value = bonsai.get_at(b"identifier", &key(&"0x01"), BasicId::new(0));
+        assert!(value.is_ok());
+        assert_eq!(value.unwrap(), Some(Felt::ONE));
+
+        let value = bonsai.get_at(b"identifier", &key(&"0x01"), BasicId::new(3));
+        assert!(value.is_err());
+
+        let value = bonsai.get_at(b"identifier", &key(&"0x04"), BasicId::new(0));
+        assert_eq!(value.unwrap(), None);
+    }
 
     #[test_log::test]
     fn test_revertible_storage() {
