@@ -83,11 +83,7 @@ fn batched_update(c: &mut Criterion) {
                                 rng.gen(),
                                 rng.gen(),
                             ]);
-                            BatchedUpdateItem::SetValue {
-                                identifier: vec![],
-                                key: bitvec,
-                                value: felt,
-                            }
+                            BatchedUpdateItem::insert(vec![], bitvec, felt)
                         }),
                     )
                     .unwrap();

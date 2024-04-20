@@ -207,11 +207,42 @@ pub enum BatchedUpdateItem {
     InitTree {
         identifier: Vec<u8>,
     },
-    SetValue {
+    Insert {
         identifier: Vec<u8>,
         key: BitVec<u8, Msb0>,
         value: Felt,
     },
+}
+
+impl BatchedUpdateItem {
+    /// The [`BonsaiStorage::init_tree`] operation.
+    pub fn init_tree(identifier: impl Into<Vec<u8>>) -> Self {
+        Self::InitTree {
+            identifier: identifier.into(),
+        }
+    }
+
+    /// The [`BonsaiStorage::insert`] operation.
+    pub fn insert(
+        identifier: impl Into<Vec<u8>>,
+        key: impl Into<BitVec<u8, Msb0>>,
+        value: Felt,
+    ) -> Self {
+        Self::Insert {
+            identifier: identifier.into(),
+            key: key.into(),
+            value,
+        }
+    }
+
+    /// The [`BonsaiStorage::remove`] operation.
+    pub fn remove(identifier: impl Into<Vec<u8>>, key: impl Into<BitVec<u8, Msb0>>) -> Self {
+        Self::Insert {
+            identifier: identifier.into(),
+            key: key.into(),
+            value: Felt::ZERO,
+        }
+    }
 }
 
 /// Trie root hash type.
@@ -252,7 +283,8 @@ where
                 || {
                     self.get_transactional_state(created_at, self.get_config())
                         .map(|tx_state| {
-                            Box::new(tx_state.expect("no snapshot with this id found")) // TODO(merge): figure out what to do with changeid
+                            Box::new(tx_state.expect("no snapshot with this id found"))
+                            // TODO(merge): figure out what to do with changeid
                         })
                 },
                 |tx_state, item| {
@@ -261,7 +293,7 @@ where
                         BatchedUpdateItem::InitTree { identifier } => {
                             tx_state.init_tree(&identifier)?;
                         }
-                        BatchedUpdateItem::SetValue {
+                        BatchedUpdateItem::Insert {
                             identifier,
                             key,
                             value,
