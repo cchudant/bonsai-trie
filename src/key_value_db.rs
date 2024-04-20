@@ -1,13 +1,10 @@
-use crate::{trie::merkle_tree::bytes_to_bitvec, Change as ExternChange};
-#[cfg(not(feature = "std"))]
-use alloc::{collections::BTreeSet, format, string::ToString, vec::Vec};
+use crate::{format, trie::merkle_tree::bytes_to_bitvec, Change as ExternChange, ToString};
+use crate::{BTreeSet, Vec};
 use bitvec::{order::Msb0, vec::BitVec};
 use hashbrown::HashMap;
 use log::trace;
 use parity_scale_codec::Decode;
 use starknet_types_core::felt::Felt;
-#[cfg(feature = "std")]
-use std::collections::BTreeSet;
 
 use crate::{
     bonsai_database::{BonsaiDatabase, BonsaiPersistentDatabase, DatabaseKey},

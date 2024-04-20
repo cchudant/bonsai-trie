@@ -84,15 +84,33 @@
 //! bonsai_storage.commit(id_builder.new_id()).unwrap();
 //! ```
 #![cfg_attr(not(feature = "std"), no_std)]
+
+// hashbrown uses ahash by default instead of siphash
+pub(crate) type HashMap<K, V> = hashbrown::HashMap<K, V>;
+pub(crate) use hashbrown::hash_map;
+
 #[cfg(not(feature = "std"))]
 extern crate alloc;
+#[cfg(not(feature = "std"))]
+pub(crate) use alloc::{
+    collections::{BTreeMap, BTreeSet, VecDeque},
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
+#[cfg(feature = "std")]
+pub(crate) use std::{
+    collections::{BTreeMap, BTreeSet, VecDeque},
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 
 use crate::trie::merkle_tree::MerkleTree;
-#[cfg(not(feature = "std"))]
-use alloc::{format, vec::Vec};
 use bitvec::{order::Msb0, slice::BitSlice, vec::BitVec};
 use changes::ChangeBatch;
-use hashbrown::HashMap;
 use key_value_db::KeyValueDB;
 #[cfg(feature = "std")]
 use rayon::prelude::*;
