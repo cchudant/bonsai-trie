@@ -99,6 +99,7 @@ pub(crate) use alloc::{
     vec,
     vec::Vec,
 };
+use parity_scale_codec::Encode;
 #[cfg(feature = "std")]
 pub(crate) use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
@@ -107,6 +108,25 @@ pub(crate) use std::{
     vec,
     vec::Vec,
 };
+
+pub(crate) type SByteVec = smallvec::SmallVec<[u8; 32]>;
+
+pub(crate) trait EncodeExt: Encode {
+	fn encode_sbytevec(&self) -> SByteVec {
+        struct Out(SByteVec);
+        impl parity_scale_codec::Output for Out {
+            #[inline]
+            fn write(&mut self, bytes: &[u8]) {
+                self.0.extend(bytes.into_iter().copied())
+            }
+        }
+
+        let mut v = Out(SByteVec::with_capacity(self.size_hint()));
+        self.encode_to(&mut v);
+        v.0
+    }
+}
+impl<T: Encode> EncodeExt for T {}
 
 use crate::trie::merkle_tree::MerkleTree;
 use bitvec::{order::Msb0, slice::BitSlice, vec::BitVec};
@@ -205,10 +225,10 @@ where
 // TODO(merge): i want to take these by ref not values :(
 pub enum BatchedUpdateItem {
     InitTree {
-        identifier: Vec<u8>,
+        identifier: SByteVec,
     },
     Insert {
-        identifier: Vec<u8>,
+        identifier: SByteVec,
         key: BitVec<u8, Msb0>,
         value: Felt,
     },
@@ -216,7 +236,7 @@ pub enum BatchedUpdateItem {
 
 impl BatchedUpdateItem {
     /// The [`BonsaiStorage::init_tree`] operation.
-    pub fn init_tree(identifier: impl Into<Vec<u8>>) -> Self {
+    pub fn init_tree(identifier: impl Into<SByteVec>) -> Self {
         Self::InitTree {
             identifier: identifier.into(),
         }
@@ -224,7 +244,7 @@ impl BatchedUpdateItem {
 
     /// The [`BonsaiStorage::insert`] operation.
     pub fn insert(
-        identifier: impl Into<Vec<u8>>,
+        identifier: impl Into<SByteVec>,
         key: impl Into<BitVec<u8, Msb0>>,
         value: Felt,
     ) -> Self {
@@ -236,7 +256,7 @@ impl BatchedUpdateItem {
     }
 
     /// The [`BonsaiStorage::remove`] operation.
-    pub fn remove(identifier: impl Into<Vec<u8>>, key: impl Into<BitVec<u8, Msb0>>) -> Self {
+    pub fn remove(identifier: impl Into<SByteVec>, key: impl Into<BitVec<u8, Msb0>>) -> Self {
         Self::Insert {
             identifier: identifier.into(),
             key: key.into(),
@@ -323,7 +343,7 @@ where
         db: DB,
         config: BonsaiStorageConfig,
         created_at: ChangeID,
-        identifiers: Vec<Vec<u8>>,
+        identifiers: Vec<SByteVec>,
     ) -> Result<Self, BonsaiStorageError<DB::DatabaseError>> {
         let key_value_db = KeyValueDB::new(db, config.into(), Some(created_at));
         let mut tries = MerkleTrees::<H, DB, ChangeID>::new(key_value_db);
@@ -524,7 +544,7 @@ where
     pub fn get_keys(
         &self,
         identifier: &[u8],
-    ) -> Result<Vec<Vec<u8>>, BonsaiStorageError<DB::DatabaseError>> {
+    ) -> Result<Vec<SByteVec>, BonsaiStorageError<DB::DatabaseError>> {
         self.tries.get_keys(identifier)
     }
 
@@ -533,7 +553,7 @@ where
     pub fn get_key_value_pairs(
         &self,
         identifier: &[u8],
-    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>, BonsaiStorageError<DB::DatabaseError>> {
+    ) -> Result<Vec<(SByteVec, SByteVec)>, BonsaiStorageError<DB::DatabaseError>> {
         self.tries.get_key_value_pairs(identifier)
     }
 

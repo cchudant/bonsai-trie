@@ -1,7 +1,5 @@
 use crate::{
-    bonsai_database::{BonsaiPersistentDatabase, DBError},
-    id::Id,
-    BTreeMap, BonsaiDatabase, HashMap, Vec,
+    bonsai_database::{BonsaiPersistentDatabase, DBError}, id::Id, BTreeMap, BonsaiDatabase, HashMap, SByteVec, Vec
 };
 use core::{fmt, fmt::Display};
 
@@ -21,7 +19,7 @@ impl DBError for HashMapDbError {}
 
 #[derive(Clone, Default)]
 pub struct HashMapDb<ID: Id> {
-    db: HashMap<Vec<u8>, Vec<u8>>,
+    db: HashMap<SByteVec, SByteVec>,
     snapshots: BTreeMap<ID, HashMapDb<ID>>,
 }
 
@@ -50,14 +48,14 @@ impl<ID: Id> BonsaiDatabase for HashMapDb<ID> {
     fn get(
         &self,
         key: &crate::bonsai_database::DatabaseKey,
-    ) -> Result<Option<Vec<u8>>, Self::DatabaseError> {
+    ) -> Result<Option<SByteVec>, Self::DatabaseError> {
         Ok(self.db.get(key.as_slice()).cloned())
     }
 
     fn get_by_prefix(
         &self,
         prefix: &crate::bonsai_database::DatabaseKey,
-    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>, Self::DatabaseError> {
+    ) -> Result<Vec<(SByteVec, SByteVec)>, Self::DatabaseError> {
         let mut result = Vec::new();
         for (key, value) in self.db.iter() {
             if key.starts_with(prefix.as_slice()) {
@@ -72,15 +70,15 @@ impl<ID: Id> BonsaiDatabase for HashMapDb<ID> {
         key: &crate::bonsai_database::DatabaseKey,
         value: &[u8],
         _batch: Option<&mut Self::Batch>,
-    ) -> Result<Option<Vec<u8>>, Self::DatabaseError> {
-        Ok(self.db.insert(key.as_slice().to_vec(), value.to_vec()))
+    ) -> Result<Option<SByteVec>, Self::DatabaseError> {
+        Ok(self.db.insert(key.as_slice().into(), value.into()))
     }
 
     fn remove(
         &mut self,
         key: &crate::bonsai_database::DatabaseKey,
         _batch: Option<&mut Self::Batch>,
-    ) -> Result<Option<Vec<u8>>, Self::DatabaseError> {
+    ) -> Result<Option<SByteVec>, Self::DatabaseError> {
         Ok(self.db.remove(key.as_slice()))
     }
 

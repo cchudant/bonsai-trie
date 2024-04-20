@@ -1,7 +1,8 @@
-use crate::{format, trie::merkle_tree::bytes_to_bitvec, Change as ExternChange, ToString};
-use crate::{BTreeSet, Vec};
+use crate::{
+    format, trie::merkle_tree::bytes_to_bitvec, BTreeSet, Change as ExternChange, HashMap,
+    SByteVec, ToString,
+};
 use bitvec::{order::Msb0, vec::BitVec};
-use hashbrown::HashMap;
 use log::trace;
 use parity_scale_codec::Decode;
 use starknet_types_core::felt::Felt;
@@ -163,7 +164,7 @@ where
     pub(crate) fn get(
         &self,
         key: &TrieKey,
-    ) -> Result<Option<Vec<u8>>, BonsaiStorageError<DB::DatabaseError>> {
+    ) -> Result<Option<SByteVec>, BonsaiStorageError<DB::DatabaseError>> {
         trace!("Getting from KeyValueDB: {:?}", key);
         Ok(self.db.get(&key.into())?)
     }
@@ -192,7 +193,7 @@ where
             key.clone(),
             Change {
                 old_value,
-                new_value: Some(value.to_vec()),
+                new_value: Some(value.into()),
             },
         );
         Ok(())

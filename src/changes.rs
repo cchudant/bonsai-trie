@@ -1,10 +1,11 @@
-use crate::{hash_map::Entry, id::Id, trie::TrieKey, HashMap, Vec, VecDeque};
+use crate::{hash_map::Entry, id::Id, trie::TrieKey, HashMap, SByteVec, Vec, VecDeque};
+use core::iter;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Change {
-    pub old_value: Option<Vec<u8>>,
-    pub new_value: Option<Vec<u8>>,
+    pub old_value: Option<SByteVec>,
+    pub new_value: Option<SByteVec>,
 }
 
 #[derive(Debug, Default)]
@@ -31,7 +32,7 @@ impl ChangeBatch {
         }
     }
 
-    pub fn serialize<ID: Id>(&self, id: &ID) -> Vec<(Vec<u8>, &[u8])> {
+    pub fn serialize<ID: Id>(&self, id: &ID) -> Vec<(SByteVec, &[u8])> {
         let id = id.to_bytes();
         self.0
             .iter()
@@ -45,26 +46,26 @@ impl ChangeBatch {
                             return changes;
                         }
                     }
-                    let key = [
-                        id.as_slice(),
-                        &[KEY_SEPARATOR],
-                        key_slice,
-                        &[change_key.into()],
-                        &[OLD_VALUE],
-                    ]
-                    .concat();
+                    let key = id
+                        .iter()
+                        .copied()
+                        .chain(iter::once(KEY_SEPARATOR))
+                        .chain(key_slice.iter().copied())
+                        .chain(iter::once(change_key.into()))
+                        .chain(iter::once(OLD_VALUE))
+                        .collect();
                     changes.push((key, old_value.as_slice()));
                 }
 
                 if let Some(new_value) = &change.new_value {
-                    let key = [
-                        id.as_slice(),
-                        &[KEY_SEPARATOR],
-                        key_slice,
-                        &[change_key.into()],
-                        &[NEW_VALUE],
-                    ]
-                    .concat();
+                    let key = id
+                        .iter()
+                        .copied()
+                        .chain(iter::once(KEY_SEPARATOR))
+                        .chain(key_slice.into_iter().copied())
+                        .chain(iter::once(change_key.into()))
+                        .chain(iter::once(NEW_VALUE))
+                        .collect();
                     changes.push((key, new_value.as_slice()));
                 }
                 changes
@@ -72,7 +73,7 @@ impl ChangeBatch {
             .collect()
     }
 
-    pub fn deserialize<ID: Id>(id: &ID, changes: Vec<(Vec<u8>, Vec<u8>)>) -> Self {
+    pub fn deserialize<ID: Id>(id: &ID, changes: Vec<(SByteVec, SByteVec)>) -> Self {
         let id = id.to_bytes();
         let mut change_batch = ChangeBatch(HashMap::new());
         let mut current_change = Change::default();
@@ -85,8 +86,7 @@ impl ChangeBatch {
             let mut key = key.to_vec();
             let change_type = key.pop().unwrap();
             let key_type = key.pop().unwrap();
-            let change_key =
-                TrieKey::from_variant_and_bytes(key_type, key[id.len() + 1..].to_vec());
+            let change_key = TrieKey::from_variant_and_bytes(key_type, key[id.len() + 1..].into());
             if let Some(last_key) = last_key {
                 if last_key != change_key {
                     change_batch.insert_in_place(last_key, current_change);

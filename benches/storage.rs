@@ -16,8 +16,25 @@ use starknet_types_core::{
 
 mod flamegraph;
 
-fn storage_with_insert(c: &mut Criterion) {
-    c.bench_function("storage commit with insert", move |b| {
+fn drop_storage(c: &mut Criterion) {
+    c.bench_function("drop storage", move |b| {
+        b.iter_batched(
+            || {
+                let bonsai_storage: BonsaiStorage<BasicId, _, Pedersen> = BonsaiStorage::new(
+                    HashMapDb::<BasicId>::default(),
+                    BonsaiStorageConfig::default(),
+                )
+                .unwrap();
+                bonsai_storage
+            },
+            std::mem::drop,
+            BatchSize::LargeInput,
+        );
+    });
+}
+
+fn insert(c: &mut Criterion) {
+    c.bench_function("storage insert", move |b| {
         let mut rng = thread_rng();
         b.iter_batched_ref(
             || {
@@ -41,9 +58,6 @@ fn storage_with_insert(c: &mut Criterion) {
                     ]);
                     bonsai_storage.insert(&[], &bitvec, &felt).unwrap();
                 }
-
-                // let mut id_builder = BasicIdBuilder::new();
-                // bonsai_storage.commit(id_builder.new_id()).unwrap();
             },
             BatchSize::LargeInput,
         );
@@ -51,7 +65,7 @@ fn storage_with_insert(c: &mut Criterion) {
 }
 
 fn batched_update(c: &mut Criterion) {
-    c.bench_function("storage commit with batched insert", move |b| {
+    c.bench_function("storage batched insert", move |b| {
         b.iter_batched_ref(
             || {
                 let mut bonsai_storage: BonsaiStorage<BasicId, _, Pedersen> = BonsaiStorage::new(
@@ -270,6 +284,6 @@ fn hash(c: &mut Criterion) {
 criterion_group! {
     name = benches;
     config = Criterion::default(); // .with_profiler(flamegraph::FlamegraphProfiler::new(100));
-    targets = storage, one_update, five_updates, hash, storage_with_insert, batched_update, multiple_contracts
+    targets = storage, one_update, five_updates, hash, insert, batched_update, multiple_contracts, drop_storage
 }
 criterion_main!(benches);
