@@ -7,7 +7,7 @@ use bonsai_trie::{
     BatchedUpdateItem, BonsaiStorage, BonsaiStorageConfig,
 };
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
-use rand::{prelude::*, thread_rng};
+use rand::prelude::*;
 use rayon::prelude::*;
 use starknet_types_core::{
     felt::Felt,
@@ -20,11 +20,30 @@ fn drop_storage(c: &mut Criterion) {
     c.bench_function("drop storage", move |b| {
         b.iter_batched(
             || {
-                let bonsai_storage: BonsaiStorage<BasicId, _, Pedersen> = BonsaiStorage::new(
+                let mut bonsai_storage: BonsaiStorage<BasicId, _, Pedersen> = BonsaiStorage::new(
                     HashMapDb::<BasicId>::default(),
                     BonsaiStorageConfig::default(),
                 )
                 .unwrap();
+
+                let mut rng = SmallRng::seed_from_u64(42);
+                let felt = Felt::from_hex("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap();
+                for _ in 0..4000 {
+                    let bitvec = BitVec::from_vec(vec![
+                        rng.gen(),
+                        rng.gen(),
+                        rng.gen(),
+                        rng.gen(),
+                        rng.gen(),
+                        rng.gen(),
+                    ]);
+                    bonsai_storage.insert(&[], &bitvec, &felt).unwrap();
+                }
+
+                let mut id_builder = BasicIdBuilder::new();
+                let id1 = id_builder.new_id();
+                bonsai_storage.commit(id1).unwrap();
+
                 bonsai_storage
             },
             std::mem::drop,
@@ -35,7 +54,7 @@ fn drop_storage(c: &mut Criterion) {
 
 fn insert(c: &mut Criterion) {
     c.bench_function("storage insert", move |b| {
-        let mut rng = thread_rng();
+        let mut rng = SmallRng::seed_from_u64(42);
         b.iter_batched_ref(
             || {
                 let bonsai_storage: BonsaiStorage<BasicId, _, Pedersen> = BonsaiStorage::new(
@@ -87,8 +106,8 @@ fn batched_update(c: &mut Criterion) {
                 bonsai_storage
                     .batched_update(
                         *id1,
-                        (0..40000).into_par_iter().map(|_| {
-                            let mut rng = thread_rng();
+                        (0..40000).into_par_iter().map(|i| {
+                            let mut rng = SmallRng::seed_from_u64(i);
                             let bitvec = BitVec::from_vec(vec![
                                 rng.gen(),
                                 rng.gen(),
@@ -114,7 +133,7 @@ fn storage(c: &mut Criterion) {
             BonsaiStorageConfig::default(),
         )
         .unwrap();
-        let mut rng = thread_rng();
+        let mut rng = SmallRng::seed_from_u64(42);
 
         let felt = Felt::from_hex("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap();
         for _ in 0..1000 {
@@ -147,7 +166,7 @@ fn one_update(c: &mut Criterion) {
             BonsaiStorageConfig::default(),
         )
         .unwrap();
-        let mut rng = thread_rng();
+        let mut rng = SmallRng::seed_from_u64(42);
 
         let felt = Felt::from_hex("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap();
         for _ in 0..1000 {
@@ -184,7 +203,7 @@ fn five_updates(c: &mut Criterion) {
             BonsaiStorageConfig::default(),
         )
         .unwrap();
-        let mut rng = thread_rng();
+        let mut rng = SmallRng::seed_from_u64(42);
 
         let felt = Felt::from_hex("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap();
         for _ in 0..1000 {
@@ -234,7 +253,7 @@ fn multiple_contracts(c: &mut Criterion) {
             BonsaiStorageConfig::default(),
         )
         .unwrap();
-        let mut rng = thread_rng();
+        let mut rng = SmallRng::seed_from_u64(42);
 
         let felt = Felt::from_hex("0x66342762FDD54D033c195fec3ce2568b62052e").unwrap();
         for _ in 0..1000 {
