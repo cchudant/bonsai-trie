@@ -135,6 +135,10 @@ where
             )));
         }
 
+        if matches!(self.config.max_saved_trie_logs, Some(0)) {
+            return Ok(());
+        }
+
         // Insert flat db changes
         let mut batch = self.db.create_batch();
         let current_changes = core::mem::take(&mut self.changes_store.current_changes);
