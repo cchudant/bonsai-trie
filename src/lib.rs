@@ -109,7 +109,7 @@ pub(crate) use std::{
     vec::Vec,
 };
 
-pub(crate) type SByteVec = smallvec::SmallVec<[u8; 32]>;
+pub type SByteVec = smallvec::SmallVec<[u8; 32]>;
 
 pub(crate) trait EncodeExt: Encode {
 	fn encode_sbytevec(&self) -> SByteVec {
