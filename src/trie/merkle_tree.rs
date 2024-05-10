@@ -783,6 +783,8 @@ impl<H: StarkHash + Send + Sync> MerkleTree<H> {
                                     Direction::Left => binary.left = NodeHandle::Hash(value),
                                     Direction::Right => binary.right = NodeHandle::Hash(value),
                                 };
+                                self.cache_leaf_modified
+                                    .insert(key_bytes, InsertOrRemove::Insert(value));
                             }
                         }
                         _ => {}
